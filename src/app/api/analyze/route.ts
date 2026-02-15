@@ -35,13 +35,11 @@ export async function POST(req: NextRequest) {
       messages: [
         {
           role: 'system',
-          content: `You are an AI assistant that analyzes JSON data based on a user-provided prompt.
-Your goal is to determine if the JSON data matches the description or rules in the prompt.
-
-Rules:
-1. If the JSON payload matches what the prompt describes, respond ONLY with the string "null".
-2. If the JSON payload DOES NOT match what the prompt describes, respond with a short, business-style explanation of why it does not match. Do not mention JSON, payloads, fields, booleans, or variable names. Talk only about the claim or business situation.
-3. Do not include any other text, formatting, or markdown in your response.`,
+          content: `You analyze structured claim data against a business rule described in natural language.
+You must respond strictly as a single JSON object with this exact shape:
+{"match": true, "reason": ""} if the payload matches the rule.
+{"match": false, "reason": "<short business-style explanation>"} if the payload does not match the rule.
+The reason must use only business language about the claim or scenario, without mentioning JSON, field names, or technical terms.`,
         },
         {
           role: 'user',
@@ -51,17 +49,34 @@ Rules:
       temperature: 0,
     });
 
-    const result = response.choices[0].message.content?.trim() || '';
+    const raw = response.choices[0].message.content?.trim() || '';
 
-    // If the model returns "null" (case-insensitive check but we asked for exactly "null")
-    if (result.toLowerCase() === 'null') {
+    let match = false;
+    let reason = '';
+
+    try {
+      const parsed = JSON.parse(raw) as { match?: boolean; reason?: string };
+      if (typeof parsed.match === 'boolean') {
+        match = parsed.match;
+      }
+      if (typeof parsed.reason === 'string') {
+        reason = parsed.reason;
+      }
+    } catch {
+      if (raw.toLowerCase() === 'null') {
+        match = true;
+      } else {
+        reason = raw;
+      }
+    }
+
+    if (match) {
       return new NextResponse(null, {
         status: 204,
       });
     }
 
-    // Otherwise return the explanation string
-    return new NextResponse(JSON.stringify(result), {
+    return new NextResponse(JSON.stringify(reason || raw), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     });
